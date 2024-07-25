@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -15,13 +16,13 @@ type httpResponse struct {
 	ResponseBody         []byte
 }
 
-func NewResponse(status, code, reasonPhrase string) *httpResponse {
+func NewResponse(status, code, reasonPhrase string, header []byte, resp []byte) *httpResponse {
 	return &httpResponse{
 		StatusLine:           status,
 		StatusCode:           code,
 		OptionalReasonPhrase: reasonPhrase,
-		Headers:              nil,
-		ResponseBody:         nil,
+		Headers:              header,
+		ResponseBody:         resp,
 	}
 }
 
@@ -46,12 +47,25 @@ type RequestLine struct {
 	httpVersion   string
 }
 
-type Headers struct {
+type Header struct {
+	ContentType   string
+	ContentLength string
+}
+
+func (h *Header) Header() []byte {
+	g := []byte{}
+	g = append(g, []byte("Content-Type: ")...)
+	g = append(g, []byte(h.ContentType)...)
+	g = append(g, []byte("\r\n")...)
+	g = append(g, []byte("Content-Length: ")...)
+	g = append(g, []byte(h.ContentLength)...)
+	g = append(g, []byte("\r\n")...)
+	return g
 }
 
 type Request struct {
 	RequestLine RequestLine
-	Headers     []Headers
+	Headers     []Header
 	RequestBody []byte
 }
 
@@ -105,11 +119,21 @@ func main() {
 		return
 	}
 
+	if strings.HasPrefix(req.RequestLine.requestTarget, "/echo/") {
+		ans := strings.TrimPrefix(req.RequestLine.requestTarget, "/echo/")
+
+		h := Header{
+			ContentType:   "text/plain",
+			ContentLength: strconv.Itoa(len(ans)),
+		}
+		resp := NewResponse("HTTP/1.1", "200", "OK", h.Header(), []byte(ans))
+		con.Write(resp.Response())
+	}
 	if isEmptyReq(req.RequestLine.requestTarget) {
-		resp := NewResponse("HTTP/1.1", "200", "OK")
+		resp := NewResponse("HTTP/1.1", "200", "OK", []byte{}, []byte{})
 		con.Write(resp.Response())
 	} else {
-		resp := NewResponse("HTTP/1.1", "404", "Not Found")
+		resp := NewResponse("HTTP/1.1", "404", "Not Found", []byte{}, []byte{})
 		con.Write(resp.Response())
 	}
 

@@ -47,12 +47,12 @@ type RequestLine struct {
 	httpVersion   string
 }
 
-type Header struct {
+type ResponseHeader struct {
 	ContentType   string
 	ContentLength string
 }
 
-func (h *Header) Header() []byte {
+func (h *ResponseHeader) Header() []byte {
 	g := []byte{}
 	g = append(g, []byte("Content-Type: ")...)
 	g = append(g, []byte(h.ContentType)...)
@@ -63,9 +63,15 @@ func (h *Header) Header() []byte {
 	return g
 }
 
+type RequestHeader struct {
+	Host      string
+	UserAgent string
+	Accept    string
+}
+
 type Request struct {
 	RequestLine RequestLine
-	Headers     []Header
+	Headers     RequestHeader
 	RequestBody []byte
 }
 
@@ -77,6 +83,23 @@ func ParseRequest(raw []byte) (Request, error) {
 	r.RequestLine.httpMethod = requestLine[0]
 	r.RequestLine.requestTarget = requestLine[1]
 	r.RequestLine.httpVersion = requestLine[2]
+
+	//userAgent := string(data[3])
+	for _, val := range data[1:] {
+		if strings.HasPrefix(val, "Host: ") {
+			r.Headers.Host = strings.TrimPrefix(val, "Host: ")
+		}
+		if strings.HasPrefix(val, "Accept:: ") {
+			r.Headers.Accept = strings.TrimPrefix(val, "Accept: ")
+		}
+		if strings.HasPrefix(val, "User-Agent: ") {
+			r.Headers.UserAgent = strings.TrimPrefix(val, "User-Agent: ")
+		}
+	}
+
+	//r.Headers.Host = strings.Split(header[0], " ")[1]
+	//r.Headers.UserAgent = strings.Split(header[1], " ")[1]
+	//r.Headers.Accept = strings.Split(header[2], " ")[1]
 
 	return r, nil
 
@@ -118,25 +141,30 @@ func main() {
 	if err != nil {
 		return
 	}
-
-	if strings.HasPrefix(req.RequestLine.requestTarget, "/echo/") {
-		ans := strings.TrimPrefix(req.RequestLine.requestTarget, "/echo/")
-
-		h := Header{
+	path := req.RequestLine.requestTarget
+	if isEmptyReq(path) {
+		resp := NewResponse("HTTP/1.1", "200", "OK", []byte{}, []byte{})
+		con.Write(resp.Response())
+	} else if strings.HasPrefix(path, "/echo") {
+		ans := strings.TrimPrefix(path, "/echo/")
+		h := ResponseHeader{
 			ContentType:   "text/plain",
 			ContentLength: strconv.Itoa(len(ans)),
 		}
 		resp := NewResponse("HTTP/1.1", "200", "OK", h.Header(), []byte(ans))
 		con.Write(resp.Response())
-	}
-	if isEmptyReq(req.RequestLine.requestTarget) {
-		resp := NewResponse("HTTP/1.1", "200", "OK", []byte{}, []byte{})
+	} else if strings.HasPrefix(path, "/user-agent") {
+		h := ResponseHeader{
+			ContentType:   "text/plain",
+			ContentLength: strconv.Itoa(len(req.Headers.UserAgent)),
+		}
+		resp := NewResponse("HTTP/1.1", "200", "OK", h.Header(), []byte(req.Headers.UserAgent))
 		con.Write(resp.Response())
 	} else {
 		resp := NewResponse("HTTP/1.1", "404", "Not Found", []byte{}, []byte{})
 		con.Write(resp.Response())
 	}
 
-	defer con.Close()
+	con.Close()
 
 }

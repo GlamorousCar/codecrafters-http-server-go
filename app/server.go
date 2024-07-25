@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strings"
 )
 
 type httpResponse struct {
@@ -39,6 +40,41 @@ func (r httpResponse) Response() []byte {
 	return res
 }
 
+type RequestLine struct {
+	httpMethod    string
+	requestTarget string
+	httpVersion   string
+}
+
+type Headers struct {
+}
+
+type Request struct {
+	RequestLine RequestLine
+	Headers     []Headers
+	RequestBody []byte
+}
+
+func ParseRequest(raw []byte) (Request, error) {
+	var r Request
+	data := strings.Split(string(raw), "\r\n")
+
+	requestLine := strings.Fields(string(data[0]))
+	r.RequestLine.httpMethod = requestLine[0]
+	r.RequestLine.requestTarget = requestLine[1]
+	r.RequestLine.httpVersion = requestLine[2]
+
+	return r, nil
+
+}
+
+func isEmptyReq(path string) bool {
+	if path == "/" {
+		return true
+	}
+	return false
+}
+
 func main() {
 	// You can use print statements as follows for debugging, they'll be visible when running tests.
 	fmt.Println("Logs from your program will appear here!")
@@ -56,10 +92,27 @@ func main() {
 		fmt.Println("Error accepting connection: ", err.Error())
 		os.Exit(1)
 	}
+	buffer := make([]byte, 1024)
 
-	resp := NewResponse("HTTP/1.1", "200", "OK")
+	bytesRead, err := con.Read(buffer)
+	if err != nil {
+		fmt.Println("Error reading data:", err.Error())
+		return
+	}
+	req, err := ParseRequest(buffer[:bytesRead])
 
-	con.Write(resp.Response())
-	con.Close()
+	if err != nil {
+		return
+	}
+
+	if isEmptyReq(req.RequestLine.requestTarget) {
+		resp := NewResponse("HTTP/1.1", "200", "OK")
+		con.Write(resp.Response())
+	} else {
+		resp := NewResponse("HTTP/1.1", "404", "Not Found")
+		con.Write(resp.Response())
+	}
+
+	defer con.Close()
 
 }

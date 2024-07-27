@@ -25,7 +25,6 @@ func NewResponse(status, code, reasonPhrase string, header []byte, resp []byte) 
 		ResponseBody:         resp,
 	}
 }
-
 func (r httpResponse) Response() []byte {
 	res := make([]byte, 0)
 	res = append(res, []byte(r.StatusLine)...)
@@ -37,7 +36,6 @@ func (r httpResponse) Response() []byte {
 	res = append(res, r.Headers...)
 	res = append(res, []byte("\r\n")...)
 	res = append(res, r.ResponseBody...)
-
 	return res
 }
 
@@ -75,96 +73,125 @@ type Request struct {
 	RequestBody []byte
 }
 
-func ParseRequest(raw []byte) (Request, error) {
-	var r Request
-	data := strings.Split(string(raw), "\r\n")
+func (r *Request) parseData(reqString string) {
+	switch msg := reqString; {
+	case strings.HasPrefix(msg, "GET"):
+		data := strings.Fields(msg)
+		r.RequestLine.httpMethod = data[0]
+		r.RequestLine.requestTarget = data[1]
+		r.RequestLine.httpVersion = data[2]
 
-	requestLine := strings.Fields(string(data[0]))
-	r.RequestLine.httpMethod = requestLine[0]
-	r.RequestLine.requestTarget = requestLine[1]
-	r.RequestLine.httpVersion = requestLine[2]
+	case strings.HasPrefix(msg, "Host"):
+		r.Headers.Host = strings.Fields(msg)[1]
 
-	//userAgent := string(data[3])
-	for _, val := range data[1:] {
-		if strings.HasPrefix(val, "Host: ") {
-			r.Headers.Host = strings.TrimPrefix(val, "Host: ")
-		}
-		if strings.HasPrefix(val, "Accept:: ") {
-			r.Headers.Accept = strings.TrimPrefix(val, "Accept: ")
-		}
-		if strings.HasPrefix(val, "User-Agent: ") {
-			r.Headers.UserAgent = strings.TrimPrefix(val, "User-Agent: ")
-		}
+	case strings.HasPrefix(msg, "Accept"):
+		r.Headers.Accept = strings.Fields(msg)[1]
+
+	case strings.HasPrefix(msg, "User-Agent"):
+		r.Headers.UserAgent = strings.Fields(msg)[1]
+	default:
+		r.RequestBody = []byte(reqString)
 	}
-
-	//r.Headers.Host = strings.Split(header[0], " ")[1]
-	//r.Headers.UserAgent = strings.Split(header[1], " ")[1]
-	//r.Headers.Accept = strings.Split(header[2], " ")[1]
-
-	return r, nil
-
 }
 
-func isEmptyReq(path string) bool {
-	if path == "/" {
-		return true
-	}
-	return false
-}
-
-func main() {
-	// You can use print statements as follows for debugging, they'll be visible when running tests.
-	fmt.Println("Logs from your program will appear here!")
-
-	// Uncomment this block to pass the first stage
-	//
-	l, err := net.Listen("tcp", "0.0.0.0:4221")
-	if err != nil {
-		fmt.Println("Failed to bind to port 4221")
-		os.Exit(1)
-	}
-
-	con, err := l.Accept()
-	if err != nil {
-		fmt.Println("Error accepting connection: ", err.Error())
-		os.Exit(1)
-	}
+func handleConn(conn net.Conn) {
+	r := &Request{}
 	buffer := make([]byte, 1024)
-
-	bytesRead, err := con.Read(buffer)
+	bytesRead, err := conn.Read(buffer)
 	if err != nil {
 		fmt.Println("Error reading data:", err.Error())
 		return
 	}
-	req, err := ParseRequest(buffer[:bytesRead])
-
-	if err != nil {
-		return
+	for _, val := range strings.Split(string(buffer[:bytesRead]), "\n") {
+		r.parseData(val)
 	}
-	path := req.RequestLine.requestTarget
-	if isEmptyReq(path) {
+
+	//req, err := ParseRequest()
+
+	switch path := r.RequestLine.requestTarget; {
+	case path == "/":
 		resp := NewResponse("HTTP/1.1", "200", "OK", []byte{}, []byte{})
-		con.Write(resp.Response())
-	} else if strings.HasPrefix(path, "/echo") {
+		conn.Write(resp.Response())
+
+	case strings.HasPrefix(path, "/echo"):
+
 		ans := strings.TrimPrefix(path, "/echo/")
 		h := ResponseHeader{
 			ContentType:   "text/plain",
 			ContentLength: strconv.Itoa(len(ans)),
 		}
 		resp := NewResponse("HTTP/1.1", "200", "OK", h.Header(), []byte(ans))
-		con.Write(resp.Response())
-	} else if strings.HasPrefix(path, "/user-agent") {
+		conn.Write(resp.Response())
+
+	case strings.HasPrefix(path, "/user-agent"):
 		h := ResponseHeader{
 			ContentType:   "text/plain",
-			ContentLength: strconv.Itoa(len(req.Headers.UserAgent)),
+			ContentLength: strconv.Itoa(len(r.Headers.UserAgent)),
 		}
-		resp := NewResponse("HTTP/1.1", "200", "OK", h.Header(), []byte(req.Headers.UserAgent))
-		con.Write(resp.Response())
-	} else {
+		resp := NewResponse("HTTP/1.1", "200", "OK", h.Header(), []byte(r.Headers.UserAgent))
+		conn.Write(resp.Response())
+
+	default:
 		resp := NewResponse("HTTP/1.1", "404", "Not Found", []byte{}, []byte{})
-		con.Write(resp.Response())
+		conn.Write(resp.Response())
 	}
 
-	con.Close()
+	//fmt.Println(err)
+
+	//scanner := bufio.NewScanner(reader)
+	//scanner.Split(ScanCRLF)
+	//fmt.Println(scanner.Text())
+	//fmt.Println(scanner.Text())
+	//fmt.Println(scanner.Text())
+	//fmt.Println(scanner.Text())
+	//req := Request{}
+	//for scanner.Scan() {
+	//	line := scanner.Text()
+	//
+	//	fmt.Println("---", line)
+	//}
+	//if err := scanner.Err(); err != nil {
+	//	fmt.Printf("Invalid input: %s", err)
+	//}
+	//fmt.Println("==", req)
+	//
+	//if err != nil {
+	//	// Handle error or end of connection
+	//	break
+	//}
+	//fmt.Print("Received: ", request)
+
+	//req, err := ParseRequest()
+	//if err != nil {
+	//	return
+	//}
+	//
+
+	defer conn.Close()
+
+}
+
+func main() {
+	// You can use print statements as follows for debugging, they'll be visible when running tests.
+	fmt.Println("Logs from your program will appear here!")
+	// Uncomment this block to pass the first stage
+	//
+	ln, err := net.Listen("tcp", "0.0.0.0:4221")
+	defer ln.Close()
+
+	if err != nil {
+		fmt.Println("Failed to bind to port 4221")
+		os.Exit(1)
+	}
+
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			fmt.Println("Error accepting connection: ", err.Error())
+			continue
+		}
+		go handleConn(conn)
+
+	}
 
 }

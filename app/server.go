@@ -166,7 +166,7 @@ func handleConn(conn net.Conn) {
 			filename := strings.TrimPrefix(urlPath, "/files/")
 			filePath := path.Join(dir, filename)
 			os.WriteFile(filePath, r.RequestBody, 0777)
-			resp := NewResponse("HTTP/1.1", "201", "OK", []byte{}, []byte{})
+			resp := NewResponse("HTTP/1.1", "201", "Created", []byte{}, []byte{})
 			conn.Write(resp.Response())
 		}
 

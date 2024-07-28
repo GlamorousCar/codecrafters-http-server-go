@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bufio"
+	"flag"
 	"fmt"
 	"net"
 	"os"
+	"path"
 	"strconv"
 	"strings"
 )
@@ -108,14 +111,14 @@ func handleConn(conn net.Conn) {
 
 	//req, err := ParseRequest()
 
-	switch path := r.RequestLine.requestTarget; {
-	case path == "/":
+	switch urlPath := r.RequestLine.requestTarget; {
+	case urlPath == "/":
 		resp := NewResponse("HTTP/1.1", "200", "OK", []byte{}, []byte{})
 		conn.Write(resp.Response())
 
-	case strings.HasPrefix(path, "/echo"):
+	case strings.HasPrefix(urlPath, "/echo"):
 
-		ans := strings.TrimPrefix(path, "/echo/")
+		ans := strings.TrimPrefix(urlPath, "/echo/")
 		h := ResponseHeader{
 			ContentType:   "text/plain",
 			ContentLength: strconv.Itoa(len(ans)),
@@ -123,13 +126,38 @@ func handleConn(conn net.Conn) {
 		resp := NewResponse("HTTP/1.1", "200", "OK", h.Header(), []byte(ans))
 		conn.Write(resp.Response())
 
-	case strings.HasPrefix(path, "/user-agent"):
+	case strings.HasPrefix(urlPath, "/user-agent"):
 		h := ResponseHeader{
 			ContentType:   "text/plain",
 			ContentLength: strconv.Itoa(len(r.Headers.UserAgent)),
 		}
 		resp := NewResponse("HTTP/1.1", "200", "OK", h.Header(), []byte(r.Headers.UserAgent))
 		conn.Write(resp.Response())
+	case strings.HasPrefix(urlPath, "/files/"):
+		filename := strings.TrimPrefix(urlPath, "/files/")
+		filePath := path.Join(dir, filename)
+		if _, err = os.Stat(filePath); os.IsNotExist(err) {
+			resp := NewResponse("HTTP/1.1", "404", "Not Found", []byte{}, []byte{})
+			conn.Write(resp.Response())
+		} else {
+			file, err := os.Open(filePath)
+			if err != nil {
+				fmt.Println("Unable to open file:", err)
+				return
+			}
+			defer file.Close()
+
+			reader := bufio.NewReader(file)
+			data := make([]byte, 1024)
+			n, err := reader.Read(data)
+
+			h := ResponseHeader{
+				ContentType:   "application/octet-stream",
+				ContentLength: strconv.Itoa(n),
+			}
+			resp := NewResponse("HTTP/1.1", "200", "OK", h.Header(), []byte(data[:n]))
+			conn.Write(resp.Response())
+		}
 
 	default:
 		resp := NewResponse("HTTP/1.1", "404", "Not Found", []byte{}, []byte{})
@@ -171,7 +199,12 @@ func handleConn(conn net.Conn) {
 
 }
 
+var dir string
+
 func main() {
+
+	flag.StringVar(&dir, "directory", "", "")
+	flag.Parse()
 	// You can use print statements as follows for debugging, they'll be visible when running tests.
 	fmt.Println("Logs from your program will appear here!")
 	// Uncomment this block to pass the first stage

@@ -9,6 +9,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 type httpResponse struct {
@@ -99,7 +100,10 @@ func (r *Request) parseData(reqString string) {
 		r.Headers.UserAgent = strings.Fields(msg)[1]
 
 	case strings.HasPrefix(msg, "Accept-Encoding:"):
-		r.Headers.AcceptEncoding = strings.Fields(msg)[1:]
+		enc := strings.TrimPrefix(msg, "Accept-Encoding:")
+		r.Headers.AcceptEncoding = strings.FieldsFunc(enc, func(r rune) bool {
+			return !unicode.IsLetter(r)
+		})
 	default:
 		r.RequestBody = []byte(reqString)
 	}

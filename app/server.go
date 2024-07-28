@@ -78,7 +78,7 @@ type Request struct {
 
 func (r *Request) parseData(reqString string) {
 	switch msg := reqString; {
-	case strings.HasPrefix(msg, "GET"):
+	case strings.HasPrefix(msg, "GET") || strings.HasPrefix(msg, "POST"):
 		data := strings.Fields(msg)
 		r.RequestLine.httpMethod = data[0]
 		r.RequestLine.requestTarget = data[1]
@@ -108,7 +108,7 @@ func handleConn(conn net.Conn) {
 	for _, val := range strings.Split(string(buffer[:bytesRead]), "\n") {
 		r.parseData(val)
 	}
-
+	fmt.Println(r)
 	//req, err := ParseRequest()
 
 	switch urlPath := r.RequestLine.requestTarget; {
@@ -134,28 +134,39 @@ func handleConn(conn net.Conn) {
 		resp := NewResponse("HTTP/1.1", "200", "OK", h.Header(), []byte(r.Headers.UserAgent))
 		conn.Write(resp.Response())
 	case strings.HasPrefix(urlPath, "/files/"):
-		filename := strings.TrimPrefix(urlPath, "/files/")
-		filePath := path.Join(dir, filename)
-		if _, err = os.Stat(filePath); os.IsNotExist(err) {
-			resp := NewResponse("HTTP/1.1", "404", "Not Found", []byte{}, []byte{})
-			conn.Write(resp.Response())
-		} else {
-			file, err := os.Open(filePath)
-			if err != nil {
-				fmt.Println("Unable to open file:", err)
-				return
-			}
-			defer file.Close()
 
-			reader := bufio.NewReader(file)
-			data := make([]byte, 1024)
-			n, err := reader.Read(data)
+		switch r.RequestLine.httpMethod {
+		case "GET":
+			filename := strings.TrimPrefix(urlPath, "/files/")
+			filePath := path.Join(dir, filename)
+			if _, err = os.Stat(filePath); os.IsNotExist(err) {
+				resp := NewResponse("HTTP/1.1", "404", "Not Found", []byte{}, []byte{})
+				conn.Write(resp.Response())
+			} else {
+				file, err := os.Open(filePath)
+				if err != nil {
+					fmt.Println("Unable to open file:", err)
+					return
+				}
+				defer file.Close()
 
-			h := ResponseHeader{
-				ContentType:   "application/octet-stream",
-				ContentLength: strconv.Itoa(n),
+				reader := bufio.NewReader(file)
+				data := make([]byte, 1024)
+				n, err := reader.Read(data)
+
+				h := ResponseHeader{
+					ContentType:   "application/octet-stream",
+					ContentLength: strconv.Itoa(n),
+				}
+				resp := NewResponse("HTTP/1.1", "200", "OK", h.Header(), []byte(data[:n]))
+				conn.Write(resp.Response())
+
 			}
-			resp := NewResponse("HTTP/1.1", "200", "OK", h.Header(), []byte(data[:n]))
+		case "POST":
+			filename := strings.TrimPrefix(urlPath, "/files/")
+			filePath := path.Join(dir, filename)
+			os.WriteFile(filePath, r.RequestBody, 0777)
+			resp := NewResponse("HTTP/1.1", "201", "OK", []byte{}, []byte{})
 			conn.Write(resp.Response())
 		}
 

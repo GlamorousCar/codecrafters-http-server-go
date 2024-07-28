@@ -15,19 +15,19 @@ type httpResponse struct {
 	StatusLine           string
 	StatusCode           string
 	OptionalReasonPhrase string
-	Headers              []byte
+	Headers              ResponseHeader
 	ResponseBody         []byte
 }
 
-func NewResponse(status, code, reasonPhrase string, header []byte, resp []byte) *httpResponse {
-	return &httpResponse{
-		StatusLine:           status,
-		StatusCode:           code,
-		OptionalReasonPhrase: reasonPhrase,
-		Headers:              header,
-		ResponseBody:         resp,
-	}
-}
+//	func NewResponse(status, code, reasonPhrase string, header []byte, resp []byte) *httpResponse {
+//		return &httpResponse{
+//			StatusLine:           status,
+//			StatusCode:           code,
+//			OptionalReasonPhrase: reasonPhrase,
+//			Headers:              header,
+//			ResponseBody:         resp,
+//		}
+//	}
 func (r httpResponse) Response() []byte {
 	res := make([]byte, 0)
 	res = append(res, []byte(r.StatusLine)...)
@@ -36,7 +36,15 @@ func (r httpResponse) Response() []byte {
 	res = append(res, []byte(" ")...)
 	res = append(res, []byte(r.OptionalReasonPhrase)...)
 	res = append(res, []byte("\r\n")...)
-	res = append(res, r.Headers...)
+	res = append(res, []byte("Content-Encoding: ")...)
+	res = append(res, []byte(r.Headers.ContentEncoding)...)
+	res = append(res, []byte("\r\n")...)
+	res = append(res, []byte("Content-Type: ")...)
+	res = append(res, []byte(r.Headers.ContentType)...)
+	res = append(res, []byte("\r\n")...)
+	res = append(res, []byte("Content-Length: ")...)
+	res = append(res, []byte(r.Headers.ContentLength)...)
+	res = append(res, []byte("\r\n")...)
 	res = append(res, []byte("\r\n")...)
 	res = append(res, r.ResponseBody...)
 	return res
@@ -49,25 +57,22 @@ type RequestLine struct {
 }
 
 type ResponseHeader struct {
-	ContentType   string
-	ContentLength string
+	ContentType     string
+	ContentLength   string
+	ContentEncoding string
 }
 
-func (h *ResponseHeader) Header() []byte {
+func (h ResponseHeader) ToBytes() []byte {
 	g := []byte{}
-	g = append(g, []byte("Content-Type: ")...)
-	g = append(g, []byte(h.ContentType)...)
-	g = append(g, []byte("\r\n")...)
-	g = append(g, []byte("Content-Length: ")...)
-	g = append(g, []byte(h.ContentLength)...)
-	g = append(g, []byte("\r\n")...)
+
 	return g
 }
 
 type RequestHeader struct {
-	Host      string
-	UserAgent string
-	Accept    string
+	Host           string
+	UserAgent      string
+	Accept         string
+	AcceptEncoding []string
 }
 
 type Request struct {
@@ -87,11 +92,14 @@ func (r *Request) parseData(reqString string) {
 	case strings.HasPrefix(msg, "Host"):
 		r.Headers.Host = strings.Fields(msg)[1]
 
-	case strings.HasPrefix(msg, "Accept"):
+	case strings.HasPrefix(msg, "Accept:"):
 		r.Headers.Accept = strings.Fields(msg)[1]
 
 	case strings.HasPrefix(msg, "User-Agent"):
 		r.Headers.UserAgent = strings.Fields(msg)[1]
+
+	case strings.HasPrefix(msg, "Accept-Encoding:"):
+		r.Headers.AcceptEncoding = strings.Fields(msg)[1:]
 	default:
 		r.RequestBody = []byte(reqString)
 	}
@@ -110,29 +118,41 @@ func handleConn(conn net.Conn) {
 	}
 	fmt.Println(r)
 	//req, err := ParseRequest()
-
+	var resp httpResponse
 	switch urlPath := r.RequestLine.requestTarget; {
 	case urlPath == "/":
-		resp := NewResponse("HTTP/1.1", "200", "OK", []byte{}, []byte{})
-		conn.Write(resp.Response())
+		resp = httpResponse{
+			StatusLine:           "HTTP/1.1",
+			StatusCode:           "200",
+			OptionalReasonPhrase: "OK",
+		}
 
 	case strings.HasPrefix(urlPath, "/echo"):
 
 		ans := strings.TrimPrefix(urlPath, "/echo/")
-		h := ResponseHeader{
-			ContentType:   "text/plain",
-			ContentLength: strconv.Itoa(len(ans)),
+		resp = httpResponse{
+			StatusLine:           "HTTP/1.1",
+			StatusCode:           "200",
+			OptionalReasonPhrase: "OK",
+			Headers: ResponseHeader{
+				ContentType:   "text/plain",
+				ContentLength: strconv.Itoa(len(ans)),
+			},
+			ResponseBody: []byte(ans),
 		}
-		resp := NewResponse("HTTP/1.1", "200", "OK", h.Header(), []byte(ans))
-		conn.Write(resp.Response())
 
 	case strings.HasPrefix(urlPath, "/user-agent"):
-		h := ResponseHeader{
-			ContentType:   "text/plain",
-			ContentLength: strconv.Itoa(len(r.Headers.UserAgent)),
+
+		resp = httpResponse{
+			StatusLine:           "HTTP/1.1",
+			StatusCode:           "200",
+			OptionalReasonPhrase: "OK",
+			Headers: ResponseHeader{
+				ContentType:   "text/plain",
+				ContentLength: strconv.Itoa(len(r.Headers.UserAgent)),
+			},
+			ResponseBody: []byte(r.Headers.UserAgent),
 		}
-		resp := NewResponse("HTTP/1.1", "200", "OK", h.Header(), []byte(r.Headers.UserAgent))
-		conn.Write(resp.Response())
 	case strings.HasPrefix(urlPath, "/files/"):
 
 		switch r.RequestLine.httpMethod {
@@ -140,8 +160,13 @@ func handleConn(conn net.Conn) {
 			filename := strings.TrimPrefix(urlPath, "/files/")
 			filePath := path.Join(dir, filename)
 			if _, err = os.Stat(filePath); os.IsNotExist(err) {
-				resp := NewResponse("HTTP/1.1", "404", "Not Found", []byte{}, []byte{})
-				conn.Write(resp.Response())
+				resp = httpResponse{
+					StatusLine:           "HTTP/1.1",
+					StatusCode:           "404",
+					OptionalReasonPhrase: "Not Found",
+					Headers:              ResponseHeader{},
+					ResponseBody:         nil,
+				}
 			} else {
 				file, err := os.Open(filePath)
 				if err != nil {
@@ -153,28 +178,49 @@ func handleConn(conn net.Conn) {
 				reader := bufio.NewReader(file)
 				data := make([]byte, 1024)
 				n, err := reader.Read(data)
-
-				h := ResponseHeader{
-					ContentType:   "application/octet-stream",
-					ContentLength: strconv.Itoa(n),
+				resp = httpResponse{
+					StatusLine:           "HTTP/1.1",
+					StatusCode:           "200",
+					OptionalReasonPhrase: "OK",
+					Headers: ResponseHeader{
+						ContentType:   "application/octet-stream",
+						ContentLength: strconv.Itoa(n),
+					},
+					ResponseBody: data[:n],
 				}
-				resp := NewResponse("HTTP/1.1", "200", "OK", h.Header(), []byte(data[:n]))
-				conn.Write(resp.Response())
 
 			}
 		case "POST":
 			filename := strings.TrimPrefix(urlPath, "/files/")
 			filePath := path.Join(dir, filename)
 			os.WriteFile(filePath, r.RequestBody, 0777)
-			resp := NewResponse("HTTP/1.1", "201", "Created", []byte{}, []byte{})
-			conn.Write(resp.Response())
+
+			resp = httpResponse{
+				StatusLine:           "HTTP/1.1",
+				StatusCode:           "201",
+				OptionalReasonPhrase: "Created",
+				Headers:              ResponseHeader{},
+				ResponseBody:         []byte{},
+			}
+
 		}
 
 	default:
-		resp := NewResponse("HTTP/1.1", "404", "Not Found", []byte{}, []byte{})
-		conn.Write(resp.Response())
+		resp = httpResponse{
+			StatusLine:           "HTTP/1.1",
+			StatusCode:           "404",
+			OptionalReasonPhrase: "Not Found",
+			Headers:              ResponseHeader{},
+			ResponseBody:         []byte{},
+		}
+	}
+	for _, val := range r.Headers.AcceptEncoding {
+		if val == "gzip" {
+			resp.Headers.ContentEncoding = "gzip"
+		}
 	}
 
+	conn.Write(resp.Response())
 	//fmt.Println(err)
 
 	//scanner := bufio.NewScanner(reader)

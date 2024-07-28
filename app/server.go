@@ -23,15 +23,6 @@ type httpResponse struct {
 	ResponseBody         []byte
 }
 
-//	func NewResponse(status, code, reasonPhrase string, header []byte, resp []byte) *httpResponse {
-//		return &httpResponse{
-//			StatusLine:           status,
-//			StatusCode:           code,
-//			OptionalReasonPhrase: reasonPhrase,
-//			Headers:              header,
-//			ResponseBody:         resp,
-//		}
-//	}
 func (r httpResponse) Response() []byte {
 	res := make([]byte, 0)
 	res = append(res, []byte(r.StatusLine)...)
@@ -64,12 +55,6 @@ type ResponseHeader struct {
 	ContentType     string
 	ContentLength   string
 	ContentEncoding string
-}
-
-func (h ResponseHeader) ToBytes() []byte {
-	g := []byte{}
-
-	return g
 }
 
 type RequestHeader struct {
@@ -123,8 +108,6 @@ func handleConn(conn net.Conn) {
 	for _, val := range strings.Split(string(buffer[:bytesRead]), "\n") {
 		r.parseData(val)
 	}
-	fmt.Println(r)
-	//req, err := ParseRequest()
 	var resp httpResponse
 	switch urlPath := r.RequestLine.requestTarget; {
 	case urlPath == "/":
@@ -221,12 +204,12 @@ func handleConn(conn net.Conn) {
 			ResponseBody:         []byte{},
 		}
 	}
+
 	for _, val := range r.Headers.AcceptEncoding {
 		if val == "gzip" {
 			resp.Headers.ContentEncoding = "gzip"
 
 			var b bytes.Buffer
-			fmt.Println(resp.ResponseBody)
 			gz := gzip.NewWriter(&b)
 			_, err := gz.Write(resp.ResponseBody)
 			if err != nil {
@@ -237,42 +220,9 @@ func handleConn(conn net.Conn) {
 			}
 			resp.ResponseBody = b.Bytes()
 			resp.Headers.ContentLength = strconv.Itoa(len(resp.ResponseBody))
-			fmt.Println(resp.ResponseBody)
-			fmt.Println(string(resp.ResponseBody))
 		}
 	}
-	fmt.Println(resp)
 	conn.Write(resp.Response())
-	//fmt.Println(err)
-
-	//scanner := bufio.NewScanner(reader)
-	//scanner.Split(ScanCRLF)
-	//fmt.Println(scanner.Text())
-	//fmt.Println(scanner.Text())
-	//fmt.Println(scanner.Text())
-	//fmt.Println(scanner.Text())
-	//req := Request{}
-	//for scanner.Scan() {
-	//	line := scanner.Text()
-	//
-	//	fmt.Println("---", line)
-	//}
-	//if err := scanner.Err(); err != nil {
-	//	fmt.Printf("Invalid input: %s", err)
-	//}
-	//fmt.Println("==", req)
-	//
-	//if err != nil {
-	//	// Handle error or end of connection
-	//	break
-	//}
-	//fmt.Print("Received: ", request)
-
-	//req, err := ParseRequest()
-	//if err != nil {
-	//	return
-	//}
-	//
 
 	defer conn.Close()
 
@@ -284,10 +234,7 @@ func main() {
 
 	flag.StringVar(&dir, "directory", "", "")
 	flag.Parse()
-	// You can use print statements as follows for debugging, they'll be visible when running tests.
 	fmt.Println("Logs from your program will appear here!")
-	// Uncomment this block to pass the first stage
-	//
 	ln, err := net.Listen("tcp", "0.0.0.0:4221")
 	defer ln.Close()
 

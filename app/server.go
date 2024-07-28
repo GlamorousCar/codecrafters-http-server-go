@@ -2,8 +2,11 @@ package main
 
 import (
 	"bufio"
+	"bytes"
+	"compress/gzip"
 	"flag"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"path"
@@ -221,9 +224,24 @@ func handleConn(conn net.Conn) {
 	for _, val := range r.Headers.AcceptEncoding {
 		if val == "gzip" {
 			resp.Headers.ContentEncoding = "gzip"
+
+			var b bytes.Buffer
+			fmt.Println(resp.ResponseBody)
+			gz := gzip.NewWriter(&b)
+			_, err := gz.Write(resp.ResponseBody)
+			if err != nil {
+				log.Fatal(err)
+			}
+			if err := gz.Close(); err != nil {
+				log.Fatal(err)
+			}
+			resp.ResponseBody = b.Bytes()
+			resp.Headers.ContentLength = strconv.Itoa(len(resp.ResponseBody))
+			fmt.Println(resp.ResponseBody)
+			fmt.Println(string(resp.ResponseBody))
 		}
 	}
-
+	fmt.Println(resp)
 	conn.Write(resp.Response())
 	//fmt.Println(err)
 
